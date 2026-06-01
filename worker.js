@@ -1,23 +1,15 @@
 import "dotenv/config"; // load .env before anything reads process.env
 import cron from "node-cron";
 import { scrapeJobs } from "./scraper.js";
-import { saveJobs, deleteOld } from "./db.js";
-
-// Each search maps to a `tag` your course platform queries by (?course=network-engineer).
-// In production, load these from your courses table. These are networking-domain roles —
-// edit the keywords/tags to match the exact courses you sell.
-const SEARCHES = [
-  { tag: "network-engineer", keywords: "Network Engineer", location: "India" },
-  { tag: "network-admin", keywords: "Network Administrator", location: "India" },
-  { tag: "network-security", keywords: "Network Security Engineer", location: "India" },
-  { tag: "cloud-network", keywords: "Cloud Network Engineer", location: "India" },
-];
+import { saveJobs, deleteOld, getSearches } from "./db.js";
 
 async function runOnce() {
   const stamp = new Date().toISOString();
-  console.log(`[${stamp}] Starting scrape run...`);
+  // Searches are managed dynamically from the GUI and stored in the DB.
+  const searches = getSearches();
+  console.log(`[${stamp}] Starting scrape run (${searches.length} searches)...`);
 
-  for (const { tag, keywords, location } of SEARCHES) {
+  for (const { tag, keywords, location } of searches) {
     try {
       const jobs = await scrapeJobs({
         keywords,

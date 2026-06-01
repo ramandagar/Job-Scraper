@@ -61,6 +61,18 @@
     .modal .meta { margin: 12px 0 16px; display: flex; gap: 8px; flex-wrap: wrap; }
     .modal .desc { font-size: 14px; white-space: pre-wrap; color: #374151; max-height: 50vh; overflow-y: auto; padding-right: 6px; }
     .close { position: absolute; top: 16px; right: 18px; font-size: 22px; background: none; border: none; cursor: pointer; color: var(--muted); }
+    .btn { background: var(--brand); color: #fff; border: none; padding: 9px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: var(--brand-dark); }
+    .btn.danger { background: #e11d48; padding: 6px 12px; font-size: 13px; }
+    .btn.danger:hover { background: #be123c; }
+    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .field label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+    .srow { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .srow .sk { font-weight: 600; font-size: 14px; }
+    .srow .sl { font-size: 12.5px; color: var(--muted); }
+    .msg { font-size: 13px; margin: 8px 0; min-height: 18px; }
+    .msg.err { color: #e11d48; } .msg.ok { color: #059669; }
+    .modal h3.section { font-size: 14px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .apply {
       display: inline-block; margin-top: 18px; background: var(--brand); color: #fff;
       text-decoration: none; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 14px;
@@ -77,6 +89,7 @@
   <div class="controls">
     <select id="course"></select>
     <input id="search" type="text" placeholder="Filter by title or company…" />
+    <button class="btn" id="manageBtn">⚙ Manage Jobs</button>
     <span class="count" id="count"></span>
   </div>
 
@@ -85,6 +98,29 @@
 
   <div class="overlay" id="overlay">
     <div class="modal" id="modal"></div>
+  </div>
+
+  <div class="overlay" id="manageOverlay">
+    <div class="modal">
+      <button class="close" id="manageClose">&times;</button>
+      <h2>Manage Jobs</h2>
+      <p class="sl">Add a job search and it'll be scraped immediately, then refreshed every few hours.</p>
+
+      <h3 class="section">Add a search</h3>
+      <div class="field">
+        <label>Keywords (job title / skill / certification)</label>
+        <input id="mKeywords" type="text" placeholder="e.g. CCNA, Network Architect, DevOps Engineer" />
+      </div>
+      <div class="field">
+        <label>Location</label>
+        <input id="mLocation" type="text" value="India" />
+      </div>
+      <button class="btn" id="mAdd">Add & Scrape</button>
+      <div class="msg" id="mMsg"></div>
+
+      <h3 class="section">Current searches</h3>
+      <div id="mList"></div>
+    </div>
   </div>
 
   <script>
@@ -191,6 +227,69 @@
 
     courseSel.addEventListener("change", () => loadJobs(courseSel.value));
     searchEl.addEventListener("input", render);
+
+    // --- Manage panel ---
+    const manageOverlay = document.getElementById("manageOverlay");
+    const mList = document.getElementById("mList");
+    const mMsg = document.getElementById("mMsg");
+    const mKeywords = document.getElementById("mKeywords");
+    const mLocation = document.getElementById("mLocation");
+    const mAdd = document.getElementById("mAdd");
+
+    document.getElementById("manageBtn").addEventListener("click", openManage);
+    document.getElementById("manageClose").addEventListener("click", () => manageOverlay.classList.remove("open"));
+    manageOverlay.addEventListener("click", e => { if (e.target === manageOverlay) manageOverlay.classList.remove("open"); });
+
+    function openManage() { manageOverlay.classList.add("open"); mMsg.textContent = ""; loadSearches(); }
+
+    async function loadSearches() {
+      mList.innerHTML = '<div class="sl">Loading…</div>';
+      const res = await fetch("/api/searches");
+      const { searches } = await res.json();
+      if (!searches.length) { mList.innerHTML = '<div class="sl">No searches yet.</div>'; return; }
+      mList.innerHTML = searches.map(s => `
+        <div class="srow">
+          <div>
+            <div class="sk">${esc(s.keywords)}</div>
+            <div class="sl">${esc(s.location)} · tag: ${esc(s.tag)}</div>
+          </div>
+          <button class="btn danger" data-tag="${esc(s.tag)}">Remove</button>
+        </div>`).join("");
+      mList.querySelectorAll("button[data-tag]").forEach(b =>
+        b.addEventListener("click", () => removeSearch(b.dataset.tag))
+      );
+    }
+
+    async function addSearchReq() {
+      const keywords = mKeywords.value.trim();
+      const location = mLocation.value.trim() || "India";
+      if (!keywords) { mMsg.className = "msg err"; mMsg.textContent = "Enter keywords first."; return; }
+      mAdd.disabled = true; mMsg.className = "msg"; mMsg.textContent = "Scraping… this can take ~30s.";
+      try {
+        const res = await fetch("/api/searches", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywords, location }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed");
+        mMsg.className = "msg ok"; mMsg.textContent = `Added "${keywords}" — ${data.scraped} jobs found.`;
+        mKeywords.value = "";
+        loadSearches();
+        loadCourses(); // refresh the main dropdown
+      } catch (e) {
+        mMsg.className = "msg err"; mMsg.textContent = "Error: " + e.message;
+      } finally {
+        mAdd.disabled = false;
+      }
+    }
+    mAdd.addEventListener("click", addSearchReq);
+
+    async function removeSearch(tag) {
+      if (!confirm(`Remove "${tag}" and its jobs?`)) return;
+      await fetch("/api/searches/" + encodeURIComponent(tag), { method: "DELETE" });
+      loadSearches();
+      loadCourses();
+    }
 
     loadCourses();
   </script>

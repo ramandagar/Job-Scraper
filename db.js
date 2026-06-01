@@ -39,6 +39,34 @@ for (const col of [
   if (!existingCols.has(col)) db.exec(`ALTER TABLE jobs ADD COLUMN ${col} TEXT`);
 }
 
+// Configured searches — what the worker scrapes. Managed from the GUI.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS searches (
+    tag        TEXT PRIMARY KEY,
+    keywords   TEXT NOT NULL,
+    location   TEXT NOT NULL DEFAULT 'India',
+    created_at TEXT
+  );
+`);
+
+// One-time seed of the original networking searches (runs exactly once, so
+// deleting them later from the GUI won't make them reappear on restart).
+if (db.pragma("user_version", { simple: true }) < 1) {
+  const seed = db.prepare(
+    `INSERT OR IGNORE INTO searches (tag, keywords, location, created_at)
+     VALUES (?, ?, ?, datetime('now'))`
+  );
+  for (const s of [
+    ["network-engineer", "Network Engineer", "India"],
+    ["network-admin", "Network Administrator", "India"],
+    ["network-security", "Network Security Engineer", "India"],
+    ["cloud-network", "Cloud Network Engineer", "India"],
+  ]) {
+    seed.run(...s);
+  }
+  db.pragma("user_version = 1");
+}
+
 const upsert = db.prepare(`
   INSERT INTO jobs (
     job_id, title, company, location, posted_date, url, tag, fetched_at,
@@ -98,6 +126,27 @@ export function getJobs({ tag, limit = 50, maxAgeDays = 7 } = {}) {
        ORDER BY posted_date DESC LIMIT ?`
     )
     .all(cutoff, limit);
+}
+
+/** All configured searches the worker should scrape. */
+export function getSearches() {
+  return db.prepare(`SELECT * FROM searches ORDER BY created_at DESC`).all();
+}
+
+/** Add (or update) a search. Returns the saved row. */
+export function addSearch({ tag, keywords, location = "India" }) {
+  db.prepare(
+    `INSERT INTO searches (tag, keywords, location, created_at)
+     VALUES (@tag, @keywords, @location, datetime('now'))
+     ON CONFLICT(tag) DO UPDATE SET keywords=excluded.keywords, location=excluded.location`
+  ).run({ tag, keywords, location });
+  return db.prepare(`SELECT * FROM searches WHERE tag = ?`).get(tag);
+}
+
+/** Remove a search and (optionally) its jobs. */
+export function deleteSearch(tag, alsoJobs = true) {
+  if (alsoJobs) db.prepare(`DELETE FROM jobs WHERE tag = ?`).run(tag);
+  return db.prepare(`DELETE FROM searches WHERE tag = ?`).run(tag).changes;
 }
 
 /** Distinct course tags currently in the DB (for the GUI dropdown). */

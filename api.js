@@ -2,18 +2,29 @@ import "dotenv/config"; // load .env before anything reads process.env
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getJobs, getJobById, saveDetails, getTags } from "./db.js";
-import { fetchJobDetail } from "./scraper.js";
+import {
+  getJobs, getJobById, saveDetails, getTags,
+  getSearches, addSearch, deleteSearch, saveJobs,
+} from "./db.js";
+import { fetchJobDetail, scrapeJobs } from "./scraper.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
+
 // Allow your course platform's frontend to call this.
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+
+const slugify = (s) =>
+  s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 // Serve the GUI (public/index.html) at the root URL.
 app.use(express.static(path.join(__dirname, "public")));
@@ -24,6 +35,50 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/api/courses", (_req, res) => {
   try {
     res.json({ courses: getTags() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Search management (used by the GUI "Manage" panel) ---
+
+// List configured searches.
+app.get("/api/searches", (_req, res) => {
+  try {
+    res.json({ searches: getSearches() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add a search, then scrape it immediately so jobs appear right away.
+app.post("/api/searches", async (req, res) => {
+  try {
+    const keywords = (req.body.keywords || "").trim();
+    const location = (req.body.location || "India").trim();
+    if (!keywords) return res.status(400).json({ error: "keywords required" });
+
+    const tag = (req.body.tag && slugify(req.body.tag)) || slugify(keywords);
+    const search = addSearch({ tag, keywords, location });
+
+    // Immediate first scrape (the worker handles periodic refreshes after).
+    const jobs = await scrapeJobs({
+      keywords, location, maxResults: 40,
+      datePosted: "week", maxAgeDays: 7, collapseSimilar: true,
+    });
+    saveJobs(jobs, tag, new Date().toISOString());
+
+    res.json({ search, scraped: jobs.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a search (and its jobs).
+app.delete("/api/searches/:tag", (req, res) => {
+  try {
+    deleteSearch(req.params.tag, true);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
