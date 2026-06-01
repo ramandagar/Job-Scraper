@@ -100,6 +100,14 @@ export function getJobs({ tag, limit = 50, maxAgeDays = 7 } = {}) {
     .all(cutoff, limit);
 }
 
+/** Distinct course tags currently in the DB (for the GUI dropdown). */
+export function getTags() {
+  return db
+    .prepare(`SELECT DISTINCT tag FROM jobs WHERE tag IS NOT NULL ORDER BY tag`)
+    .all()
+    .map((r) => r.tag);
+}
+
 /** Read a single job by id (used for on-demand detail loading). */
 export function getJobById(jobId) {
   return db.prepare(`SELECT * FROM jobs WHERE job_id = ?`).get(jobId);

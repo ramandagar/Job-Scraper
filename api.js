@@ -1,8 +1,11 @@
 import "dotenv/config"; // load .env before anything reads process.env
 import express from "express";
-import { getJobs, getJobById, saveDetails } from "./db.js";
+import path from "path";
+import { fileURLToPath } from "url";
+import { getJobs, getJobById, saveDetails, getTags } from "./db.js";
 import { fetchJobDetail } from "./scraper.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -12,7 +15,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve the GUI (public/index.html) at the root URL.
+app.use(express.static(path.join(__dirname, "public")));
+
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// List of available course tags (for the GUI dropdown).
+app.get("/api/courses", (_req, res) => {
+  try {
+    res.json({ courses: getTags() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/jobs?course=react&limit=20  -> list (no descriptions, cheap)
 app.get("/api/jobs", (req, res) => {

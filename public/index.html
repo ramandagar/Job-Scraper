@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Open Jobs</title>
+  <style>
+    :root {
+      --bg: #f4f6f8; --card: #fff; --ink: #1a1a2e; --muted: #6b7280;
+      --brand: #0a66c2; --brand-dark: #084e96; --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--ink); line-height: 1.5;
+    }
+    header {
+      background: var(--brand); color: #fff; padding: 20px 24px;
+    }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header p { font-size: 13px; opacity: .85; margin-top: 2px; }
+    .controls {
+      max-width: 1100px; margin: 20px auto 0; padding: 0 24px;
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    }
+    select, input {
+      font-size: 14px; padding: 9px 12px; border: 1px solid var(--border);
+      border-radius: 8px; background: #fff; color: var(--ink);
+    }
+    input { flex: 1; min-width: 200px; }
+    .count { color: var(--muted); font-size: 13px; margin-left: auto; }
+    .grid {
+      max-width: 1100px; margin: 16px auto 48px; padding: 0 24px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px; cursor: pointer; transition: box-shadow .15s, transform .15s;
+    }
+    .card:hover { box-shadow: 0 6px 20px rgba(0,0,0,.08); transform: translateY(-2px); }
+    .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .card .company { font-size: 14px; color: var(--brand); font-weight: 500; }
+    .card .meta { font-size: 12.5px; color: var(--muted); margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .pill { background: #eef3f8; color: var(--brand-dark); padding: 2px 8px; border-radius: 999px; font-size: 11.5px; }
+    .state { max-width: 1100px; margin: 40px auto; padding: 0 24px; text-align: center; color: var(--muted); }
+    .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Modal */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none;
+      align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; z-index: 50;
+    }
+    .overlay.open { display: flex; }
+    .modal {
+      background: #fff; border-radius: 14px; max-width: 680px; width: 100%;
+      padding: 28px; position: relative;
+    }
+    .modal h2 { font-size: 20px; margin-bottom: 4px; }
+    .modal .company { color: var(--brand); font-weight: 600; font-size: 15px; }
+    .modal .meta { margin: 12px 0 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .modal .desc { font-size: 14px; white-space: pre-wrap; color: #374151; max-height: 50vh; overflow-y: auto; padding-right: 6px; }
+    .close { position: absolute; top: 16px; right: 18px; font-size: 22px; background: none; border: none; cursor: pointer; color: var(--muted); }
+    .apply {
+      display: inline-block; margin-top: 18px; background: var(--brand); color: #fff;
+      text-decoration: none; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 14px;
+    }
+    .apply:hover { background: var(--brand-dark); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Open Jobs</h1>
+    <p>Live roles relevant to your course — updated every few hours</p>
+  </header>
+
+  <div class="controls">
+    <select id="course"></select>
+    <input id="search" type="text" placeholder="Filter by title or company…" />
+    <span class="count" id="count"></span>
+  </div>
+
+  <div id="grid" class="grid"></div>
+  <div id="state" class="state"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <script>
+    const grid = document.getElementById("grid");
+    const stateEl = document.getElementById("state");
+    const courseSel = document.getElementById("course");
+    const searchEl = document.getElementById("search");
+    const countEl = document.getElementById("count");
+    const overlay = document.getElementById("overlay");
+    const modal = document.getElementById("modal");
+
+    let allJobs = [];
+
+    function timeAgo(dateStr) {
+      if (!dateStr) return "";
+      const d = new Date(dateStr), now = new Date();
+      const days = Math.floor((now - d) / 86400000);
+      if (days <= 0) return "Today";
+      if (days === 1) return "Yesterday";
+      return days + " days ago";
+    }
+
+    function setState(html) { stateEl.innerHTML = html; }
+
+    async function loadCourses() {
+      const res = await fetch("/api/courses");
+      const { courses } = await res.json();
+      courseSel.innerHTML = courses
+        .map(c => `<option value="${c}">${c.replace(/-/g, " ")}</option>`)
+        .join("");
+      if (courses.length) loadJobs(courses[0]);
+      else setState("No courses found yet.");
+    }
+
+    async function loadJobs(course) {
+      grid.innerHTML = "";
+      setState('<div class="spinner"></div>Loading jobs…');
+      try {
+        const res = await fetch(`/api/jobs?course=${encodeURIComponent(course)}&limit=100`);
+        const data = await res.json();
+        allJobs = data.jobs || [];
+        render();
+      } catch (e) {
+        setState("Failed to load jobs.");
+      }
+    }
+
+    function render() {
+      const q = searchEl.value.trim().toLowerCase();
+      const jobs = allJobs.filter(j =>
+        !q || (j.title + " " + j.company).toLowerCase().includes(q)
+      );
+      countEl.textContent = jobs.length + " job" + (jobs.length === 1 ? "" : "s");
+      if (!jobs.length) { setState("No jobs match."); grid.innerHTML = ""; return; }
+      setState("");
+      grid.innerHTML = jobs.map(j => `
+        <div class="card" data-id="${j.job_id}">
+          <h3>${esc(j.title)}</h3>
+          <div class="company">${esc(j.company)}</div>
+          <div class="meta">
+            <span>📍 ${esc(j.location || "—")}</span>
+            <span class="pill">${timeAgo(j.posted_date)}</span>
+          </div>
+        </div>`).join("");
+      document.querySelectorAll(".card").forEach(c =>
+        c.addEventListener("click", () => openJob(c.dataset.id))
+      );
+    }
+
+    function esc(s) {
+      return (s || "").replace(/[&<>"]/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[m]));
+    }
+
+    async function openJob(id) {
+      overlay.classList.add("open");
+      modal.innerHTML = '<button class="close">&times;</button><div class="state"><div class="spinner"></div>Loading details…</div>';
+      modal.querySelector(".close").addEventListener("click", closeModal);
+      try {
+        const res = await fetch(`/api/jobs/${id}`);
+        const j = await res.json();
+        modal.innerHTML = `
+          <button class="close">&times;</button>
+          <h2>${esc(j.title)}</h2>
+          <div class="company">${esc(j.company)}</div>
+          <div class="meta">
+            <span class="pill">📍 ${esc(j.location || "—")}</span>
+            <span class="pill">${timeAgo(j.posted_date)}</span>
+            ${j.seniority ? `<span class="pill">${esc(j.seniority)}</span>` : ""}
+            ${j.employment_type ? `<span class="pill">${esc(j.employment_type)}</span>` : ""}
+            ${j.applicants ? `<span class="pill">${esc(j.applicants)}</span>` : ""}
+          </div>
+          <div class="desc">${esc(j.description) || "No description available."}</div>
+          <a class="apply" href="${esc(j.url)}" target="_blank" rel="noopener">View on LinkedIn →</a>`;
+        modal.querySelector(".close").addEventListener("click", closeModal);
+      } catch (e) {
+        modal.innerHTML = '<button class="close">&times;</button><div class="state">Failed to load details.</div>';
+        modal.querySelector(".close").addEventListener("click", closeModal);
+      }
+    }
+
+    function closeModal() { overlay.classList.remove("open"); }
+    overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+    courseSel.addEventListener("change", () => loadJobs(courseSel.value));
+    searchEl.addEventListener("input", render);
+
+    loadCourses();
+  </script>
+</body>
+</html>
