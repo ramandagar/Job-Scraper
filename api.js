@@ -1,3 +1,4 @@
+import "dotenv/config"; // load .env before anything reads process.env
 import express from "express";
 import { getJobs, getJobById, saveDetails } from "./db.js";
 import { fetchJobDetail } from "./scraper.js";

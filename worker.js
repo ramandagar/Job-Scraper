@@ -1,3 +1,4 @@
+import "dotenv/config"; // load .env before anything reads process.env
 import cron from "node-cron";
 import { scrapeJobs } from "./scraper.js";
 import { saveJobs, deleteOld } from "./db.js";
