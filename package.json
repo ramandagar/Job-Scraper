@@ -1,0 +1,20 @@
+{
+  "name": "linkedin-job-scraper",
+  "version": "1.0.0",
+  "description": "Scrape public LinkedIn job listings for the course platform",
+  "type": "module",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "node scraper.js",
+    "worker": "node worker.js",
+    "api": "node api.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "better-sqlite3": "^11.3.0",
+    "cheerio": "^1.0.0",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "p-limit": "^5.0.0"
+  }
+}
