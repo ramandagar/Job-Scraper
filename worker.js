@@ -1,13 +1,15 @@
 import cron from "node-cron";
 import { scrapeJobs } from "./scraper.js";
-import { saveJobs } from "./db.js";
+import { saveJobs, deleteOld } from "./db.js";
 
-// Each search maps to a `tag` your course platform queries by (?course=react).
-// In production, load these from your courses table.
+// Each search maps to a `tag` your course platform queries by (?course=network-engineer).
+// In production, load these from your courses table. These are networking-domain roles —
+// edit the keywords/tags to match the exact courses you sell.
 const SEARCHES = [
-  { tag: "react", keywords: "React Developer", location: "India" },
-  { tag: "data-analyst", keywords: "Data Analyst", location: "India" },
-  { tag: "backend", keywords: "Backend Developer", location: "India" },
+  { tag: "network-engineer", keywords: "Network Engineer", location: "India" },
+  { tag: "network-admin", keywords: "Network Administrator", location: "India" },
+  { tag: "network-security", keywords: "Network Security Engineer", location: "India" },
+  { tag: "cloud-network", keywords: "Cloud Network Engineer", location: "India" },
 ];
 
 async function runOnce() {
@@ -16,7 +18,15 @@ async function runOnce() {
 
   for (const { tag, keywords, location } of SEARCHES) {
     try {
-      const jobs = await scrapeJobs({ keywords, location, maxResults: 50 });
+      const jobs = await scrapeJobs({
+        keywords,
+        location,
+        maxResults: 40,
+        withDetails: false, // list only — descriptions fetched lazily by the API
+        datePosted: "week", // only jobs from the last 7 days
+        maxAgeDays: 7,
+        collapseSimilar: true, // drop multi-city duplicate postings
+      });
       saveJobs(jobs, tag, stamp);
       console.log(`  ✓ ${tag} (${keywords}/${location}): ${jobs.length} jobs saved`);
     } catch (err) {
@@ -26,7 +36,8 @@ async function runOnce() {
     await new Promise((r) => setTimeout(r, 5000));
   }
 
-  console.log(`[${new Date().toISOString()}] Done.`);
+  const removed = deleteOld(7);
+  console.log(`[${new Date().toISOString()}] Done. Cleaned ${removed} stale jobs.`);
 }
 
 // Run immediately on boot, then on a schedule.
